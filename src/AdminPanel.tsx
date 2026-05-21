@@ -1,12 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Shield, Users, Building2, Laptop, FileText, Palmtree, Award,
-  ClipboardCheck, ChevronRight, BarChart2, Settings, LogOut,
-  Bell, Search, Eye, CheckCircle2, XCircle, Clock, AlertTriangle,
-  TrendingUp, Activity, Lock, Unlock
+  ClipboardCheck, ChevronRight, BarChart2, LogOut,
+  Search, Eye, CheckCircle2, XCircle, Clock,
+  Activity, Lock, Unlock, Car, ScrollText, ChevronLeft
 } from 'lucide-react';
 import { societies } from './themes';
 import { validUsers, mockDocuments, mockDevices, mockVacations, mockCertificates, mockExams } from './mockData';
+import UserManagement from './UserManagement';
+import VehiclesModule from './VehiclesModule';
+import DocumentsModule from './DocumentsModule';
+import AuditLogPanel from './AuditLogPanel';
+import SocietySwitcher from './SocietySwitcher';
+import TestUploader from './components/TestUploader';
+import { useSociety } from './context/SocietyContext';
+import VacationsModule from './components/VacationsModule';
 
 interface Props {
   email: string;
@@ -14,12 +22,18 @@ interface Props {
   onNavigate: (view: 'admin' | 'rrhh' | 'society', societyId?: string) => void;
 }
 
-type AdminTab = 'overview' | 'users' | 'societies' | 'documents' | 'devices' | 'vacations';
+type AdminTab = 'overview' | 'users' | 'societies' | 'documents' | 'devices' | 'vacations' | 'vehicles' | 'audit';
 
 export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSociety, setSelectedSociety] = useState<string | null>(null);
+  const { activeSocietyId } = useSociety();
+
+  // Reload data when active society changes
+  useEffect(() => {
+    setSelectedSociety(activeSocietyId);
+  }, [activeSocietyId]);
 
   const allDocuments = Object.entries(mockDocuments).flatMap(([sId, docs]) =>
     docs.map((d) => ({ ...d, societyId: sId }))
@@ -52,9 +66,11 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
     { id: 'overview', label: 'Panel General', icon: BarChart2 },
     { id: 'users', label: 'Usuarios', icon: Users },
     { id: 'societies', label: 'Sociedades', icon: Building2 },
+    { id: 'vehicles', label: 'Vehiculos', icon: Car },
     { id: 'documents', label: 'Documentos', icon: FileText },
     { id: 'devices', label: 'Dispositivos', icon: Laptop },
     { id: 'vacations', label: 'Vacaciones', icon: Palmtree },
+    { id: 'audit', label: 'Auditoria', icon: ScrollText },
   ];
 
   const filteredDocuments = allDocuments.filter((d) =>
@@ -77,7 +93,15 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
       <header className="sticky top-0 z-50" style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}>
+            <button
+              onClick={onLogout}
+              title="Volver al inicio"
+              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 cursor-pointer transition-all duration-200 hover:opacity-80"
+              style={{ backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', color: '#CBD5E1' }}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)' }}>
               <Shield size={20} style={{ color: '#EF4444' }} />
             </div>
             <div>
@@ -86,6 +110,7 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <SocietySwitcher />
             <button
               onClick={() => onNavigate('rrhh')}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200"
@@ -238,6 +263,11 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
               </div>
             </div>
 
+            {/* Wasabi test uploader — remove once connection is verified */}
+            <div className="mb-6">
+              <TestUploader />
+            </div>
+
             {/* Exam/vacation summary */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}>
@@ -285,60 +315,7 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
 
         {/* Users Tab */}
         {activeTab === 'users' && (
-          <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}>
-            <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid #E2E8F0' }}>
-              <div>
-                <h3 className="font-semibold" style={{ color: '#0F172A' }}>Todos los Usuarios</h3>
-                <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>{validUsers.length} usuarios registrados</p>
-              </div>
-            </div>
-            <div className="divide-y" style={{ borderColor: '#F1F5F9' }}>
-              {validUsers.map((user, i) => {
-                const society = user.societyId ? getSocietyTheme(user.societyId) : null;
-                const roleColors: Record<string, { bg: string; text: string; border: string }> = {
-                  admin: { bg: '#FEF2F2', text: '#DC2626', border: '#FECACA' },
-                  rrhh: { bg: '#EFF6FF', text: '#2563EB', border: '#BFDBFE' },
-                  employee: { bg: '#F0FDF4', text: '#16A34A', border: '#BBF7D0' },
-                };
-                const rc = roleColors[user.role];
-                return (
-                  <div key={i} className="px-6 py-4 flex items-center gap-4">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
-                      style={{
-                        backgroundColor: society ? `${society.primary}15` : '#F1F5F9',
-                        color: society ? society.primary : '#64748B',
-                      }}
-                    >
-                      {user.name.charAt(0)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold" style={{ color: '#0F172A' }}>{user.name}</p>
-                      <p className="text-xs" style={{ color: '#94A3B8' }}>{user.email}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {society && (
-                        <span
-                          className="text-xs font-medium px-2.5 py-1 rounded-md"
-                          style={{ backgroundColor: society.primaryLight, color: society.primary, border: `1px solid ${society.border}` }}
-                        >
-                          {society.name}
-                        </span>
-                      )}
-                      {!society && (
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-md" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>
-                          Todas las sociedades
-                        </span>
-                      )}
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: rc.bg, color: rc.text, border: `1px solid ${rc.border}` }}>
-                        {user.role}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <UserManagement currentUserRole="admin" />
         )}
 
         {/* Societies Tab */}
@@ -398,59 +375,9 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
           </div>
         )}
 
-        {/* Documents Tab */}
+        {/* Documents Tab - Supabase backed */}
         {activeTab === 'documents' && (
-          <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}>
-            <div className="px-6 py-4 flex items-center justify-between gap-4" style={{ borderBottom: '1px solid #E2E8F0' }}>
-              <div>
-                <h3 className="font-semibold" style={{ color: '#0F172A' }}>Todos los Documentos</h3>
-                <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>{filteredDocuments.length} documentos</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#94A3B8' }} />
-                  <input
-                    type="text"
-                    placeholder="Buscar..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8 pr-3 py-2 rounded-lg text-xs outline-none"
-                    style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', color: '#1E293B', width: '200px' }}
-                  />
-                </div>
-                <select
-                  value={selectedSociety ?? ''}
-                  onChange={(e) => setSelectedSociety(e.target.value || null)}
-                  className="px-3 py-2 rounded-lg text-xs outline-none cursor-pointer"
-                  style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', color: '#1E293B' }}
-                >
-                  <option value="">Todas las sociedades</option>
-                  {societies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="divide-y" style={{ borderColor: '#F1F5F9' }}>
-              {filteredDocuments.map((doc, i) => {
-                const s = getSocietyTheme(doc.societyId);
-                return (
-                  <div key={i} className="px-6 py-3.5 flex items-center gap-4">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: s ? `${s.primary}10` : '#F1F5F9' }}>
-                      <FileText size={14} style={{ color: s?.primary ?? '#64748B' }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate" style={{ color: '#1E293B' }}>{doc.name}</p>
-                      <p className="text-xs" style={{ color: '#94A3B8' }}>{doc.date} &middot; {doc.size}</p>
-                    </div>
-                    {s && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-md flex-shrink-0" style={{ backgroundColor: s.primaryLight, color: s.primary, border: `1px solid ${s.border}` }}>
-                        {s.name}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <DocumentsModule currentUserRole="admin" userEmail={email} />
         )}
 
         {/* Devices Tab */}
@@ -516,58 +443,19 @@ export default function AdminPanel({ email, onLogout, onNavigate }: Props) {
           </div>
         )}
 
-        {/* Vacations Tab */}
+        {/* Vehicles Tab - NEW */}
+        {activeTab === 'vehicles' && (
+          <VehiclesModule currentUserRole="admin" userEmail={email} />
+        )}
+
+        {/* Vacations Tab — Supabase-backed */}
         {activeTab === 'vacations' && (
-          <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}>
-            <div className="px-6 py-4 flex items-center justify-between gap-4" style={{ borderBottom: '1px solid #E2E8F0' }}>
-              <div>
-                <h3 className="font-semibold" style={{ color: '#0F172A' }}>Gestion de Vacaciones</h3>
-                <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>{filteredVacations.length} solicitudes</p>
-              </div>
-              <select
-                value={selectedSociety ?? ''}
-                onChange={(e) => setSelectedSociety(e.target.value || null)}
-                className="px-3 py-2 rounded-lg text-xs outline-none cursor-pointer"
-                style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', color: '#1E293B' }}
-              >
-                <option value="">Todas las sociedades</option>
-                {societies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-            </div>
-            <div className="divide-y" style={{ borderColor: '#F1F5F9' }}>
-              {filteredVacations.map((vac, i) => {
-                const s = getSocietyTheme(vac.societyId);
-                const statusColors = {
-                  aprobada: { bg: '#F0FDF4', text: '#16A34A', border: '#BBF7D0', icon: CheckCircle2 },
-                  pendiente: { bg: '#FFFBEB', text: '#D97706', border: '#FDE68A', icon: Clock },
-                  rechazada: { bg: '#FEF2F2', text: '#DC2626', border: '#FECACA', icon: XCircle },
-                };
-                const sc = statusColors[vac.status];
-                const StatusIcon = sc.icon;
-                return (
-                  <div key={i} className="px-6 py-4 flex items-center gap-4">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: sc.bg }}>
-                      <StatusIcon size={15} style={{ color: sc.text }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold" style={{ color: '#1E293B' }}>{vac.from} &rarr; {vac.to}</p>
-                      <p className="text-xs" style={{ color: '#94A3B8' }}>{vac.days} dias &middot; {vac.reason}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {s && (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-md" style={{ backgroundColor: s.primaryLight, color: s.primary, border: `1px solid ${s.border}` }}>
-                          {s.name}
-                        </span>
-                      )}
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
-                        {vac.status}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <VacationsModule role="admin" />
+        )}
+
+        {/* Audit Tab - NEW */}
+        {activeTab === 'audit' && (
+          <AuditLogPanel />
         )}
       </div>
     </div>

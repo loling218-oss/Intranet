@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building2, Landmark, Gem, Shield, ChevronDown, ArrowRight, Eye, EyeOff, User, Lock, LogOut, Bell, FileText, Laptop, Palmtree, Award, ClipboardCheck } from 'lucide-react';
+import { Building2, Landmark, Gem, Shield, ChevronDown, ArrowRight, Eye, EyeOff, User, Lock, LogOut, Bell, FileText, Laptop, Palmtree, Award, ClipboardCheck, Car, QrCode, X, RefreshCw, AlertCircle } from 'lucide-react';
 import { societies, SocietyTheme } from './themes';
 import { validUsers, mockDocuments, mockDevices, mockVacations, mockCertificates, mockExams, UserRole } from './mockData';
 import DocumentsCard from './DocumentsCard';
@@ -9,6 +9,7 @@ import CertificatesCard from './CertificatesCard';
 import ExamsCard from './ExamsCard';
 import AdminPanel from './AdminPanel';
 import RRHHPanel from './RRHHPanel';
+import { supabase } from './supabaseClient';
 
 const iconMap: Record<string, React.FC<{ size?: number; className?: string }>> = {
   'building-2': Building2,
@@ -16,6 +17,338 @@ const iconMap: Record<string, React.FC<{ size?: number; className?: string }>> =
   gem: Gem,
   shield: Shield,
 };
+
+// ─── Quick Vehicle Register Modal ───────────────────────────────────────────
+type VehicleStatus = 'libre' | 'en_uso_mismo' | 'en_uso_otro';
+
+interface VehicleInfo {
+  id: string;
+  matricula: string;
+  marca: string;
+  modelo: string;
+  estado: string;
+  current_user_nombre: string | null;
+  current_km_inicio: number | null;
+  kilometros_actuales: number;
+}
+
+function VehicleRegisterModal({ onClose }: { onClose: () => void }) {
+  // step: 'plate' → enter plate | 'id' → enter employee ID to check | 'action' → libre/en_uso_mismo/en_uso_otro
+  const [step, setStep] = useState<'plate' | 'id' | 'action'>('plate');
+  const [plate, setPlate] = useState('');
+  const [empleadoId, setEmpleadoId] = useState('');
+  const [km, setKm] = useState('');
+  const [vehicle, setVehicle] = useState<VehicleInfo | null>(null);
+  const [vehicleStatus, setVehicleStatus] = useState<VehicleStatus>('libre');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState<'started' | 'finished' | null>(null);
+
+  // Step 1: look up plate
+  const handleSearchPlate = async () => {
+    if (!plate.trim()) return;
+    setError('');
+    setLoading(true);
+    try {
+      const { data, error: vErr } = await supabase
+        .from('vehicles')
+        .select('id,matricula,marca,modelo,estado,current_user_nombre,current_km_inicio,kilometros_actuales')
+        .eq('matricula', plate.trim().toUpperCase())
+        .maybeSingle();
+      if (vErr) throw new Error(vErr.message);
+      if (!data) throw new Error(`Matrícula ${plate.trim().toUpperCase()} no encontrada`);
+      setVehicle(data as VehicleInfo);
+      setStep('id');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al buscar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 2: enter employee ID → determine action
+  const handleCheckId = () => {
+    if (!empleadoId.trim() || !vehicle) return;
+    setError('');
+    if (vehicle.estado === 'libre') {
+      setVehicleStatus('libre');
+    } else {
+      // compare by empleado_id embedded in current_user_nombre
+      const isSame = vehicle.current_user_nombre === `Empleado ${empleadoId.trim()}`;
+      setVehicleStatus(isSame ? 'en_uso_mismo' : 'en_uso_otro');
+    }
+    setStep('action');
+  };
+
+  // Action: start use (libre)
+  const handleStart = async () => {
+    setError('');
+    const kmVal = parseInt(km, 10);
+    if (isNaN(kmVal) || kmVal < 0) { setError('Kilometraje inválido'); return; }
+    if (!vehicle) return;
+    setLoading(true);
+    try {
+      const now = new Date().toISOString();
+      const { error: logErr } = await supabase.from('vehicle_logs').insert({
+        vehicle_id: vehicle.id,
+        user_id: null,
+        user_nombre: `Empleado ${empleadoId.trim()}`,
+        fecha_inicio: now,
+        km_inicio: kmVal,
+        tipo: 'normal',
+        motivo: `Registro rápido. ID empleado: ${empleadoId.trim()}`,
+      });
+      if (logErr) throw new Error(logErr.message);
+      const { error: vUpErr } = await supabase.from('vehicles').update({
+        estado: 'en_uso',
+        current_user_nombre: `Empleado ${empleadoId.trim()}`,
+        current_km_inicio: kmVal,
+        current_fecha_inicio: now,
+        kilometros_actuales: kmVal,
+      }).eq('id', vehicle.id);
+      if (vUpErr) throw new Error(vUpErr.message);
+      setDone('started');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al registrar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Action: finish use (en_uso_mismo)
+  const handleFinish = async () => {
+    setError('');
+    const kmVal = parseInt(km, 10);
+    if (isNaN(kmVal) || kmVal < 0) { setError('Kilometraje final inválido'); return; }
+    if (!vehicle) return;
+    setLoading(true);
+    try {
+      const now = new Date().toISOString();
+      // close the open log
+      const { data: openLog } = await supabase
+        .from('vehicle_logs')
+        .select('id,km_inicio,fecha_inicio')
+        .eq('vehicle_id', vehicle.id)
+        .is('fecha_fin', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (openLog) {
+        const inicio = new Date(openLog.fecha_inicio).getTime();
+        const fin = new Date(now).getTime();
+        const duracion = Math.round((fin - inicio) / 60000);
+        const { error: logUpErr } = await supabase.from('vehicle_logs').update({
+          fecha_fin: now,
+          km_fin: kmVal,
+          duracion_minutos: duracion,
+        }).eq('id', openLog.id);
+        if (logUpErr) throw new Error(logUpErr.message);
+      }
+
+      const { error: vUpErr } = await supabase.from('vehicles').update({
+        estado: 'libre',
+        current_user_id: null,
+        current_user_nombre: null,
+        current_km_inicio: null,
+        current_fecha_inicio: null,
+        kilometros_actuales: kmVal,
+      }).eq('id', vehicle.id);
+      if (vUpErr) throw new Error(vUpErr.message);
+      setDone('finished');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al finalizar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const inputStyle = { border: '1.5px solid #E2E8F0', color: '#1E293B', backgroundColor: '#F8FAFC' };
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}>
+      <div className="bg-white rounded-2xl max-w-md w-full mx-4 overflow-hidden shadow-2xl">
+        {/* Header */}
+        <div className="px-6 py-4 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #0F172A, #1E293B)' }}>
+          <div className="flex items-center gap-2">
+            <Car size={18} className="text-white" />
+            <div>
+              <h2 className="text-white font-semibold text-sm">Registrar Vehículo</h2>
+              <p className="text-white/60 text-xs">Acceso rápido sin login</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff' }}>
+            <X size={14} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* ── DONE ── */}
+          {done ? (
+            <div className="text-center py-4">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: done === 'started' ? '#F0FDF4' : '#EFF6FF', border: `2px solid ${done === 'started' ? '#BBF7D0' : '#BFDBFE'}` }}>
+                <Car size={24} style={{ color: done === 'started' ? '#16A34A' : '#2563EB' }} />
+              </div>
+              <p className="font-semibold" style={{ color: done === 'started' ? '#16A34A' : '#2563EB' }}>
+                {done === 'started' ? 'Uso iniciado correctamente' : 'Uso finalizado correctamente'}
+              </p>
+              <p className="text-xs mt-1" style={{ color: '#94A3B8' }}>
+                {vehicle?.matricula} — Empleado {empleadoId} — {km} km
+              </p>
+              <button onClick={onClose} className="mt-5 w-full py-2.5 rounded-xl text-sm font-semibold cursor-pointer" style={{ backgroundColor: '#0F172A', color: '#FFFFFF' }}>
+                Cerrar
+              </button>
+            </div>
+
+          /* ── STEP: PLATE ── */
+          ) : step === 'plate' ? (
+            <>
+              <div className="flex flex-col items-center py-5 rounded-xl" style={{ backgroundColor: '#F8FAFC', border: '1px dashed #CBD5E1' }}>
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-3" style={{ backgroundColor: '#F1F5F9' }}>
+                  <QrCode size={32} style={{ color: '#94A3B8' }} />
+                </div>
+                <p className="text-sm font-medium" style={{ color: '#1E293B' }}>Introduce la matrícula</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#64748B' }}>Matrícula</label>
+                <input
+                  type="text"
+                  value={plate}
+                  onChange={(e) => setPlate(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPlate()}
+                  placeholder="1234-ABC"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm outline-none text-center font-mono font-bold tracking-widest"
+                  style={{ ...inputStyle, fontSize: '16px' }}
+                />
+              </div>
+              {error && <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA' }}><AlertCircle size={13} style={{ color: '#DC2626' }} /><p className="text-xs" style={{ color: '#DC2626' }}>{error}</p></div>}
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-medium cursor-pointer" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Cancelar</button>
+                <button onClick={handleSearchPlate} disabled={loading || !plate.trim()} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2" style={{ backgroundColor: '#0F172A' }}>
+                  {loading && <RefreshCw size={13} className="animate-spin" />}
+                  Buscar Vehículo
+                </button>
+              </div>
+            </>
+
+          /* ── STEP: ID EMPLEADO ── */
+          ) : step === 'id' ? (
+            <>
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                <Car size={16} style={{ color: '#16A34A' }} />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#15803D' }}>{vehicle?.matricula}</p>
+                  <p className="text-xs" style={{ color: '#64748B' }}>{vehicle?.marca} {vehicle?.modelo}</p>
+                </div>
+                <button onClick={() => { setStep('plate'); setError(''); setVehicle(null); }} className="ml-auto text-xs cursor-pointer" style={{ color: '#94A3B8' }}>Cambiar</button>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#64748B' }}>ID Empleado</label>
+                <input
+                  type="text"
+                  value={empleadoId}
+                  onChange={(e) => setEmpleadoId(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCheckId()}
+                  placeholder="88888888"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm outline-none"
+                  style={inputStyle}
+                />
+              </div>
+              {error && <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA' }}><AlertCircle size={13} style={{ color: '#DC2626' }} /><p className="text-xs" style={{ color: '#DC2626' }}>{error}</p></div>}
+              <div className="flex gap-3">
+                <button onClick={() => { setStep('plate'); setError(''); }} className="flex-1 py-2.5 rounded-xl text-sm font-medium cursor-pointer" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Atrás</button>
+                <button onClick={handleCheckId} disabled={!empleadoId.trim()} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer disabled:opacity-60" style={{ backgroundColor: '#0F172A' }}>
+                  Continuar
+                </button>
+              </div>
+            </>
+
+          /* ── STEP: ACTION ── */
+          ) : (
+            <>
+              {/* Vehicle badge */}
+              <div className="flex items-center gap-3 px-4 py-3 rounded-xl" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                <Car size={16} style={{ color: '#64748B' }} />
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#1E293B' }}>{vehicle?.matricula}</p>
+                  <p className="text-xs" style={{ color: '#64748B' }}>{vehicle?.marca} {vehicle?.modelo} — Empleado {empleadoId}</p>
+                </div>
+              </div>
+
+              {/* EN USO POR OTRO → blocked */}
+              {vehicleStatus === 'en_uso_otro' ? (
+                <div className="rounded-xl p-4 space-y-3" style={{ backgroundColor: '#FEF2F2', border: '1.5px solid #FECACA' }}>
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={18} style={{ color: '#DC2626', flexShrink: 0, marginTop: 1 }} />
+                    <div>
+                      <p className="text-sm font-semibold" style={{ color: '#B91C1C' }}>Vehículo en uso por otro empleado</p>
+                      <p className="text-xs mt-1" style={{ color: '#DC2626' }}>
+                        Actualmente asignado a: <strong>{vehicle?.current_user_nombre ?? 'desconocido'}</strong>
+                      </p>
+                      <p className="text-xs mt-2" style={{ color: '#7F1D1D' }}>
+                        No es posible registrar este vehículo. Llame a RRHH o Informática para que liberen el vehículo.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Status banner */}
+                  {vehicleStatus === 'libre' ? (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#16A34A' }} />
+                      <p className="text-xs font-medium" style={{ color: '#15803D' }}>Vehículo libre — introduce los km actuales para empezar</p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE' }}>
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#2563EB' }} />
+                      <p className="text-xs font-medium" style={{ color: '#1D4ED8' }}>En uso por ti — introduce los km finales para terminar</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#64748B' }}>
+                      {vehicleStatus === 'libre' ? 'Kilómetros actuales' : 'Kilómetros finales'}
+                    </label>
+                    <input
+                      type="number"
+                      value={km}
+                      onChange={(e) => setKm(e.target.value)}
+                      placeholder={String(vehicle?.kilometros_actuales ?? 0)}
+                      className="w-full px-4 py-2.5 rounded-xl text-sm outline-none"
+                      style={inputStyle}
+                    />
+                  </div>
+
+                  {error && <div className="flex items-center gap-2 px-3 py-2 rounded-lg" style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA' }}><AlertCircle size={13} style={{ color: '#DC2626' }} /><p className="text-xs" style={{ color: '#DC2626' }}>{error}</p></div>}
+
+                  <div className="flex gap-3">
+                    <button onClick={() => { setStep('id'); setError(''); setKm(''); }} className="flex-1 py-2.5 rounded-xl text-sm font-medium cursor-pointer" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Atrás</button>
+                    {vehicleStatus === 'libre' ? (
+                      <button onClick={handleStart} disabled={loading || !km} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2" style={{ backgroundColor: '#16A34A' }}>
+                        {loading && <RefreshCw size={13} className="animate-spin" />}
+                        Empezar uso
+                      </button>
+                    ) : (
+                      <button onClick={handleFinish} disabled={loading || !km} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2" style={{ backgroundColor: '#2563EB' }}>
+                        {loading && <RefreshCw size={13} className="animate-spin" />}
+                        Terminar uso
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {vehicleStatus === 'en_uso_otro' && (
+                <button onClick={onClose} className="w-full py-2.5 rounded-xl text-sm font-medium cursor-pointer" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Cerrar</button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type AppView = 'login' | 'admin' | 'rrhh' | 'dashboard';
 
@@ -36,6 +369,7 @@ export default function LoginPage() {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [session, setSession] = useState<SessionState | null>(null);
+  const [showVehicleModal, setShowVehicleModal] = useState(false);
 
   const selected = societies.find((s) => s.id === selectedId) ?? null;
 
@@ -46,6 +380,23 @@ export default function LoginPage() {
       return () => clearTimeout(timer);
     }
   }, [selectedId]);
+
+  // 15-minute inactivity timeout — resets on any user interaction
+  useEffect(() => {
+    if (!session) return;
+    const TIMEOUT_MS = 15 * 60 * 1000;
+    let timer = setTimeout(handleLogout, TIMEOUT_MS);
+    const reset = () => {
+      clearTimeout(timer);
+      timer = setTimeout(handleLogout, TIMEOUT_MS);
+    };
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }));
+    return () => {
+      clearTimeout(timer);
+      events.forEach((e) => window.removeEventListener(e, reset));
+    };
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -390,8 +741,22 @@ export default function LoginPage() {
           <p className="text-center mt-6 text-xs transition-colors duration-500" style={{ color: selected?.textSecondary ?? '#94A3B8' }}>
             Problemas para acceder? Contacta al departamento de TI
           </p>
+
+          {/* Quick vehicle registration — no login required */}
+          <div className="mt-6 pt-5" style={{ borderTop: `1px solid ${selected?.border ?? '#E2E8F0'}` }}>
+            <button
+              onClick={() => setShowVehicleModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer hover:opacity-90"
+              style={{ backgroundColor: selected ? `${selected.primary}15` : '#F1F5F9', color: selected?.primary ?? '#334155', border: `1.5px solid ${selected?.border ?? '#E2E8F0'}` }}
+            >
+              <Car size={16} />
+              REGISTRAR VEHÍCULO
+            </button>
+          </div>
         </div>
       </div>
+
+      {showVehicleModal && <VehicleRegisterModal onClose={() => setShowVehicleModal(false)} />}
     </div>
   );
 }

@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Users, FileText, Palmtree, Award, ClipboardCheck,
-  LogOut, Bell, CheckCircle2, XCircle, Clock, Search,
-  TrendingUp, Calendar, ChevronRight, Download, Filter
+  LogOut, CheckCircle2, XCircle, Clock, Search,
+  Calendar, ChevronRight, Lock, Car, ScrollText, TrendingUp, ChevronLeft
 } from 'lucide-react';
 import { societies } from './themes';
 import { validUsers, mockDocuments, mockVacations, mockCertificates, mockExams } from './mockData';
+import UserManagement from './UserManagement';
+import VehiclesModule from './VehiclesModule';
+import DocumentsModule from './DocumentsModule';
+import AuditLogPanel from './AuditLogPanel';
+import SocietySwitcher from './SocietySwitcher';
+import { useSociety } from './context/SocietyContext';
+import EmployeeDocumentsSection from './components/EmployeeDocumentsSection';
+import VacationsModule from './components/VacationsModule';
 
 interface Props {
   email: string;
@@ -14,13 +22,20 @@ interface Props {
   isAdmin?: boolean;
 }
 
-type RRHHTab = 'overview' | 'employees' | 'vacations' | 'certificates' | 'exams';
+type RRHHTab = 'overview' | 'employees' | 'vacations' | 'certificates' | 'exams' | 'users' | 'vehicles' | 'documents' | 'audit';
 
 export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<RRHHTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSociety, setFilterSociety] = useState<string>('');
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [expandedEmployee, setExpandedEmployee] = useState<string | null>(null);
+  const { activeSocietyId } = useSociety();
+
+  // Sync filter with active society when it changes
+  useEffect(() => {
+    setFilterSociety(activeSocietyId);
+  }, [activeSocietyId]);
 
   const employees = validUsers.filter((u) => u.role === 'employee');
 
@@ -46,12 +61,16 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
     return diff <= 90 && diff > 0;
   });
 
-  const tabs: { id: RRHHTab; label: string; icon: React.FC<{ size?: number }> }[] = [
-    { id: 'overview', label: 'Resumen RRHH', icon: TrendingUp },
+  const tabs: { id: RRHHTab; label: string; icon: React.FC<{ size?: number }>; badge?: number }[] = [
+    { id: 'overview', label: 'Resumen RRHH', icon: Clock },
     { id: 'employees', label: 'Empleados', icon: Users },
-    { id: 'vacations', label: 'Vacaciones', icon: Palmtree },
+    { id: 'users', label: 'Gestion de Usuarios', icon: Users },
+    { id: 'vehicles', label: 'Vehiculos', icon: Car },
+    { id: 'documents', label: 'Documentos', icon: FileText },
+    { id: 'vacations', label: 'Vacaciones', icon: Palmtree, badge: vacationsPending.length },
     { id: 'certificates', label: 'Certificaciones', icon: Award },
     { id: 'exams', label: 'Examenes', icon: ClipboardCheck },
+    { id: 'audit', label: 'Auditoria', icon: ScrollText },
   ];
 
   const getSociety = (id: string) => societies.find((s) => s.id === id);
@@ -82,7 +101,19 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
       >
         <div className="max-w-screen-2xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
+            {/* Universal back button */}
+            <button
+              onClick={isAdmin && onNavigateAdmin ? onNavigateAdmin : onLogout}
+              title={isAdmin && onNavigateAdmin ? 'Volver a Admin' : 'Volver al inicio'}
+              className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 cursor-pointer transition-all duration-200 hover:opacity-80"
+              style={{ backgroundColor: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#E0F2FE' }}
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}
+            >
               <Users size={20} className="text-white" />
             </div>
             <div>
@@ -91,13 +122,14 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <SocietySwitcher textColor="#E0F2FE" bgColor="rgba(255,255,255,0.08)" borderColor="rgba(255,255,255,0.1)" />
             {isAdmin && onNavigateAdmin && (
               <button
                 onClick={onNavigateAdmin}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200"
+                className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition-all duration-200"
                 style={{ backgroundColor: 'rgba(239,68,68,0.15)', color: '#FCA5A5', border: '1px solid rgba(239,68,68,0.2)' }}
               >
-                Volver a Admin
+                <span>Volver a Admin</span>
               </button>
             )}
             <div className="text-right hidden sm:block">
@@ -129,7 +161,7 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer whitespace-nowrap"
+                className="relative flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer whitespace-nowrap"
                 style={{
                   backgroundColor: isActive ? '#0369A1' : 'transparent',
                   color: isActive ? '#FFFFFF' : '#64748B',
@@ -137,6 +169,17 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
               >
                 <TabIcon size={15} />
                 {tab.label}
+                {tab.badge != null && tab.badge > 0 && (
+                  <span
+                    className="ml-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={{
+                      backgroundColor: isActive ? 'rgba(255,255,255,0.25)' : '#DBEAFE',
+                      color: isActive ? '#FFFFFF' : '#1D4ED8',
+                    }}
+                  >
+                    {tab.badge}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -334,36 +377,53 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
                   const userDocs = user.societyId ? (mockDocuments[user.societyId]?.length ?? 0) : 0;
                   const userCerts = user.societyId ? (mockCertificates[user.societyId]?.length ?? 0) : 0;
                   const userVacs = user.societyId ? (mockVacations[user.societyId]?.balance) : null;
+                  const isExpanded = expandedEmployee === user.email;
                   return (
-                    <div key={i} className="px-6 py-4 flex items-center gap-4">
-                      <div
-                        className="w-11 h-11 rounded-full flex items-center justify-center font-bold flex-shrink-0"
-                        style={{ backgroundColor: s ? `${s.primary}15` : '#F1F5F9', color: s ? s.primary : '#64748B', fontSize: '16px' }}
+                    <div key={i}>
+                      <button
+                        onClick={() => setExpandedEmployee(isExpanded ? null : user.email)}
+                        className="w-full px-6 py-4 flex items-center gap-4 text-left transition-colors duration-150 cursor-pointer hover:bg-slate-50"
                       >
-                        {user.name.charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold" style={{ color: '#1E293B' }}>{user.name}</p>
-                        <p className="text-xs" style={{ color: '#94A3B8' }}>{user.email}</p>
-                      </div>
-                      <div className="hidden md:flex items-center gap-4 text-center">
-                        <div>
-                          <p className="text-sm font-bold" style={{ color: '#0369A1' }}>{userDocs}</p>
-                          <p className="text-xs" style={{ color: '#94A3B8' }}>Docs</p>
+                        <div
+                          className="w-11 h-11 rounded-full flex items-center justify-center font-bold flex-shrink-0"
+                          style={{ backgroundColor: s ? `${s.primary}15` : '#F1F5F9', color: s ? s.primary : '#64748B', fontSize: '16px' }}
+                        >
+                          {user.name.charAt(0)}
                         </div>
-                        <div>
-                          <p className="text-sm font-bold" style={{ color: '#16A34A' }}>{userVacs ? userVacs.total - userVacs.used - userVacs.pending : 0}</p>
-                          <p className="text-xs" style={{ color: '#94A3B8' }}>Vac. disp.</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold" style={{ color: '#1E293B' }}>{user.name}</p>
+                          <p className="text-xs" style={{ color: '#94A3B8' }}>{user.email}</p>
                         </div>
-                        <div>
-                          <p className="text-sm font-bold" style={{ color: '#EC4899' }}>{userCerts}</p>
-                          <p className="text-xs" style={{ color: '#94A3B8' }}>Certs</p>
+                        <div className="hidden md:flex items-center gap-4 text-center">
+                          <div>
+                            <p className="text-sm font-bold" style={{ color: '#0369A1' }}>{userDocs}</p>
+                            <p className="text-xs" style={{ color: '#94A3B8' }}>Docs</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold" style={{ color: '#16A34A' }}>{userVacs ? userVacs.total - userVacs.used - userVacs.pending : 0}</p>
+                            <p className="text-xs" style={{ color: '#94A3B8' }}>Vac. disp.</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold" style={{ color: '#EC4899' }}>{userCerts}</p>
+                            <p className="text-xs" style={{ color: '#94A3B8' }}>Certs</p>
+                          </div>
                         </div>
-                      </div>
-                      {s && (
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-md flex-shrink-0" style={{ backgroundColor: s.primaryLight, color: s.primary, border: `1px solid ${s.border}` }}>
-                          {s.name}
-                        </span>
+                        {s && (
+                          <span className="text-xs font-medium px-2.5 py-1 rounded-md flex-shrink-0" style={{ backgroundColor: s.primaryLight, color: s.primary, border: `1px solid ${s.border}` }}>
+                            {s.name}
+                          </span>
+                        )}
+                        <TrendingUp size={14} className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} style={{ color: '#94A3B8' }} />
+                      </button>
+                      {isExpanded && user.societyId && (
+                        <div className="px-6 pb-5 pt-2" style={{ backgroundColor: '#F8FAFC', borderTop: '1px solid #E2E8F0' }}>
+                          <EmployeeDocumentsSection
+                            employeeId={user.email}
+                            employeeNombre={user.name}
+                            societyId={user.societyId}
+                            viewerRole={isAdmin ? 'admin' : 'rrhh'}
+                          />
+                        </div>
                       )}
                     </div>
                   );
@@ -372,94 +432,9 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
           </div>
         )}
 
-        {/* Vacations Tab */}
+        {/* Vacations Tab — Supabase-backed */}
         {activeTab === 'vacations' && (
-          <div className="rounded-2xl overflow-hidden" style={{ backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}>
-            <div className="px-6 py-4 flex flex-wrap items-center justify-between gap-3" style={{ borderBottom: '1px solid #E2E8F0' }}>
-              <div>
-                <h3 className="font-semibold" style={{ color: '#0F172A' }}>Solicitudes de Vacaciones</h3>
-                <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>{filteredVacations.length} solicitudes</p>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#94A3B8' }} />
-                  <input
-                    type="text"
-                    placeholder="Buscar..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-8 pr-3 py-2 rounded-lg text-xs outline-none"
-                    style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', color: '#1E293B', width: '160px' }}
-                  />
-                </div>
-                <select
-                  value={filterSociety}
-                  onChange={(e) => setFilterSociety(e.target.value)}
-                  className="px-3 py-2 rounded-lg text-xs outline-none cursor-pointer"
-                  style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', color: '#1E293B' }}
-                >
-                  <option value="">Todas</option>
-                  {societies.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-3 py-2 rounded-lg text-xs outline-none cursor-pointer"
-                  style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', color: '#1E293B' }}
-                >
-                  <option value="">Todos los estados</option>
-                  <option value="pendiente">Pendiente</option>
-                  <option value="aprobada">Aprobada</option>
-                  <option value="rechazada">Rechazada</option>
-                </select>
-              </div>
-            </div>
-            <div className="divide-y" style={{ borderColor: '#F8FAFC' }}>
-              {filteredVacations.map((vac, i) => {
-                const s = getSociety(vac.societyId);
-                const statusColors = {
-                  aprobada: { bg: '#F0FDF4', text: '#16A34A', border: '#BBF7D0', icon: CheckCircle2 },
-                  pendiente: { bg: '#FFFBEB', text: '#D97706', border: '#FDE68A', icon: Clock },
-                  rechazada: { bg: '#FEF2F2', text: '#DC2626', border: '#FECACA', icon: XCircle },
-                };
-                const sc = statusColors[vac.status];
-                const StatusIcon = sc.icon;
-                return (
-                  <div key={i} className="px-6 py-4 flex items-center gap-4">
-                    <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: sc.bg }}>
-                      <StatusIcon size={15} style={{ color: sc.text }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold" style={{ color: '#1E293B' }}>
-                        {vac.from} &rarr; {vac.to} &nbsp;&middot;&nbsp; {vac.days} dias
-                      </p>
-                      <p className="text-xs" style={{ color: '#94A3B8' }}>{vac.reason}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {s && (
-                        <span className="text-xs font-medium px-2 py-0.5 rounded-md" style={{ backgroundColor: s.primaryLight, color: s.primary, border: `1px solid ${s.border}` }}>
-                          {s.name}
-                        </span>
-                      )}
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-md" style={{ backgroundColor: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
-                        {vac.status}
-                      </span>
-                      {vac.status === 'pendiente' && (
-                        <div className="flex gap-1">
-                          <button className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}>
-                            <CheckCircle2 size={12} style={{ color: '#16A34A' }} />
-                          </button>
-                          <button className="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer" style={{ backgroundColor: '#FEF2F2', border: '1px solid #FECACA' }}>
-                            <XCircle size={12} style={{ color: '#DC2626' }} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <VacationsModule role={isAdmin ? 'admin' : 'rrhh'} />
         )}
 
         {/* Certificates Tab */}
@@ -615,6 +590,26 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
               })}
             </div>
           </div>
+        )}
+
+        {/* Users Tab - NEW */}
+        {activeTab === 'users' && (
+          <UserManagement currentUserRole="rrhh" />
+        )}
+
+        {/* Vehicles Tab - NEW */}
+        {activeTab === 'vehicles' && (
+          <VehiclesModule currentUserRole="rrhh" userEmail={email} />
+        )}
+
+        {/* Documents Tab - NEW */}
+        {activeTab === 'documents' && (
+          <DocumentsModule currentUserRole="rrhh" userEmail={email} />
+        )}
+
+        {/* Audit Tab - NEW */}
+        {activeTab === 'audit' && (
+          <AuditLogPanel />
         )}
       </div>
     </div>

@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react';
 import {
   Users, FileText, Palmtree, Award, ClipboardCheck,
   LogOut, CheckCircle2, XCircle, Clock, Search,
-  Calendar, ChevronRight, Lock, Car, ScrollText, TrendingUp, ChevronLeft
+  Calendar, ChevronRight, Lock, Car, ScrollText, TrendingUp, ChevronLeft, Zap
 } from 'lucide-react';
 import { societies } from './themes';
 import { validUsers, mockDocuments, mockVacations, mockCertificates, mockExams } from './mockData';
 import UserManagement from './UserManagement';
 import VehiclesModule from './VehiclesModule';
 import DocumentsModule from './DocumentsModule';
+import PDFSplitModule from './PDFSplitModule';
 import AuditLogPanel from './AuditLogPanel';
 import SocietySwitcher from './SocietySwitcher';
 import { useSociety } from './context/SocietyContext';
@@ -22,7 +23,7 @@ interface Props {
   isAdmin?: boolean;
 }
 
-type RRHHTab = 'overview' | 'employees' | 'vacations' | 'certificates' | 'exams' | 'users' | 'vehicles' | 'documents' | 'audit';
+type RRHHTab = 'overview' | 'employees' | 'vacations' | 'certificates' | 'exams' | 'users' | 'vehicles' | 'documents' | 'pdf-split' | 'audit';
 
 export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<RRHHTab>('overview');
@@ -67,6 +68,7 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
     { id: 'users', label: 'Gestion de Usuarios', icon: Users },
     { id: 'vehicles', label: 'Vehiculos', icon: Car },
     { id: 'documents', label: 'Documentos', icon: FileText },
+    { id: 'pdf-split', label: 'Separador de PDFs', icon: Zap },
     { id: 'vacations', label: 'Vacaciones', icon: Palmtree, badge: vacationsPending.length },
     { id: 'certificates', label: 'Certificaciones', icon: Award },
     { id: 'exams', label: 'Examenes', icon: ClipboardCheck },
@@ -281,7 +283,7 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
                           <p className="text-xs" style={{ color: '#94A3B8' }}>Vence: {cert.expiryDate}</p>
                         </div>
                         <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <span className="text-xs font-bold px-2 py-0.5 rounded-md" style={{ backgroundColor: daysLeft <= 30 ? '#FEF2F2' : '#FFFBEB', color: daysLeft <= 30 ? '#DC2626' : '#D97706', border: `1px solid ${daysLeft <= 30 ? '#FECACA' : '#FDE68A'}` }}>
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-md" style={{ backgroundColor: daysLeft <= 30 ? '#FEF2F2' : '#FFFBEB', color: daysLeft <= 30 ? '#DC2626' : '#D97706' }}>
                             {daysLeft}d
                           </span>
                           {s && (
@@ -605,6 +607,11 @@ export default function RRHHPanel({ email, onLogout, onNavigateAdmin, isAdmin }:
         {/* Documents Tab - NEW */}
         {activeTab === 'documents' && (
           <DocumentsModule currentUserRole="rrhh" userEmail={email} />
+        )}
+
+        {/* PDF Split Tab - NEW */}
+        {activeTab === 'pdf-split' && (
+          <PDFSplitModule />
         )}
 
         {/* Audit Tab - NEW */}
